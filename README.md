@@ -38,3 +38,5 @@ Once dependencies are installed and data is prepared, you can run the full pipel
 python RunModel.py
 
 
+## LICENSE
+This project is released under the MIT License. See the LICENSE file for details.
