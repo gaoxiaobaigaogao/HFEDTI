@@ -30,6 +30,7 @@ warnings.filterwarnings("ignore", category=FutureWarning)
 
 DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+
 def save_features(model, data_loader, save_dir):
     model.eval()
     drug_features = []
@@ -40,44 +41,57 @@ def save_features(model, data_loader, save_dir):
     with torch.no_grad():
         for drug, protein, label in data_loader:
             drug, protein, label = drug.cuda(), protein.cuda(), label.cuda()
-            # forward
+
+            # Embedding
             drugembed = model.drug_embed(drug).permute(0, 2, 1)
             proteinembed = model.protein_embed(protein).permute(0, 2, 1)
 
-            drugConv = model.Drug_CNNs(drugembed).permute(0, 2, 1)
+            # CNNs
+            drugConv = model.Drug_CNNs(drugembed).permute(0, 2, 1)  # [B, L, D]
             proteinConv = model.Protein_CNNs(proteinembed).permute(0, 2, 1)
 
+            # BiLSTM + Attention
             drug_lstm = model.drug_bilstm(drugConv)
             protein_lstm = model.protein_bilstm(proteinConv)
 
-            drug_att, protein_att = model.deep_inter_attention(drug_lstm, protein_lstm)
+            # Attention
+            drug_att, protein_att = model.Hierarchical_Heterogeneous_att(drug_lstm, protein_lstm)
 
+            # 融合
             drugConv = drugConv * 0.5 + drug_att * 0.5
             proteinConv = proteinConv * 0.5 + protein_att * 0.5
 
+            # Pooling
             drugConv = drugConv.permute(0, 2, 1)
             proteinConv = proteinConv.permute(0, 2, 1)
 
             drugConv = model.Drug_max_pool(drugConv).squeeze(2)
             proteinConv = model.Protein_max_pool(proteinConv).squeeze(2)
 
+            # 拼接
             pair = torch.cat([drugConv, proteinConv], dim=1)
 
+            # 保存结果
             all_features.append(pair.cpu().numpy())
             drug_features.append(drugConv.cpu().numpy())
             target_features.append(proteinConv.cpu().numpy())
             all_labels.append(label.cpu().numpy())
 
     all_features = np.concatenate(all_features, axis=0)
+    drug_features = np.concatenate(drug_features, axis=0)
+    target_features = np.concatenate(target_features, axis=0)
     all_labels = np.concatenate(all_labels, axis=0)
 
     if not os.path.exists(save_dir):
         os.makedirs(save_dir)
 
     np.save(os.path.join(save_dir, 'feature.npy'), all_features)
+    np.save(os.path.join(save_dir, 'drug_feature.npy'), drug_features)
+    np.save(os.path.join(save_dir, 'protein_feature.npy'), target_features)
     np.save(os.path.join(save_dir, 'label.npy'), all_labels)
 
     print('特征和标签已保存:', save_dir)
+
 
 def run_model(SEED, DATASET, MODEL, K_Fold, LOSS):
     '''set random seed'''
@@ -388,11 +402,11 @@ def ensemble_run_model(SEED, DATASET, K_Fold):
     # 打印最终结果
     show_result(DATASET, Accuracy_test, Precision_test, Recall_test, AUC_test, PRC_test, Ensemble=True)
 
-if __name__ == '__main__':
-    SEED = 114514
-    DATASET = 'DrugBank'
-    MODEL = HFEDTI
-    K_Fold = 10
-    LOSS = 'FocalLoss'
-
-    run_model(SEED, DATASET, MODEL, K_Fold, LOSS)
+# if __name__ == '__main__':
+#     SEED = 114514
+#     DATASET = 'DrugBank'
+#     MODEL = HFEDTI
+#     K_Fold = 10
+#     LOSS = 'FocalLoss'
+#
+#     run_model(SEED, DATASET, MODEL, K_Fold, LOSS)

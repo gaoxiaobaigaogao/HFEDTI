@@ -248,21 +248,33 @@ class HFEDTI(nn.Module):
 
     def extract_features(self, drug, protein):
         """特征提取（与forward前半部分一致）"""
-        drugembed = self.drug_embed(drug).permute(0, 2, 1)
+        # 嵌入
+        drugembed = self.drug_embed(drug).permute(0, 2, 1)  # [B, C, L]
         proteinembed = self.protein_embed(protein).permute(0, 2, 1)
-        drugConv = self.Drug_CNNs(drugembed)
-        proteinConv = self.Protein_CNNs(proteinembed)
-        drug_lstm= self.drug_bilstm(drugConv.permute(0, 2, 1))
-        protein_lstm = self.protein_bilstm(proteinConv.permute(0, 2, 1))
-        drug_QKV = drug_lstm.permute(1, 0, 2)
-        protein_QKV = protein_lstm.permute(1, 0, 2)
-        drug_att = self.Hierarchical_Heterogeneous_att(drug_QKV, protein_QKV, protein_QKV).permute(1, 2, 0)
-        protein_att = self.Hierarchical_Heterogeneous_att(protein_QKV, drug_QKV, drug_QKV).permute(1, 2, 0)
+
+        # CNN
+        drugConv = self.Drug_CNNs(drugembed).permute(0, 2, 1)  # [B, L, D]
+        proteinConv = self.Protein_CNNs(proteinembed).permute(0, 2, 1)
+
+        # BiLSTM + Attention
+        drug_lstm = self.drug_bilstm(drugConv)  # [B, L, D]
+        protein_lstm = self.protein_bilstm(proteinConv)
+
+        drug_att, protein_att = self.Hierarchical_Heterogeneous_att(drug_lstm, protein_lstm)
+
+        # 融合原始特征和注意力特征
         drugConv = drugConv * 0.5 + drug_att * 0.5
         proteinConv = proteinConv * 0.5 + protein_att * 0.5
-        drugConv = self.Drug_max_pool(drugConv).squeeze(2)
+
+        # Pooling
+        drugConv = drugConv.permute(0, 2, 1)  # [B, D, L]
+        proteinConv = proteinConv.permute(0, 2, 1)
+
+        drugConv = self.Drug_max_pool(drugConv).squeeze(2)  # [B, D]
         proteinConv = self.Protein_max_pool(proteinConv).squeeze(2)
-        return torch.cat([drugConv, proteinConv], dim=1)
+
+        # 返回拼接后的特征
+        return torch.cat([drugConv, proteinConv], dim=1)  # [B, 2D]
 
 
 # casestudy
